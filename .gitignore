@@ -1,0 +1,21 @@
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+
+# Node and generated files
+node_modules/
+dist/
+coverage/
+.vite/
+npm-debug.log*
+
+# Local database and Docker state
+postgres_data/
+*.sql.bak
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

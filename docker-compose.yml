@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: amz_management
+      POSTGRES_USER: amz
+      POSTGRES_PASSWORD: amz_password
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U amz -d amz_management"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  api:
+    build: ./server
+    env_file: .env
+    depends_on:
+      db: {condition: service_healthy}
+    ports: ["3000:3000"]
+  web:
+    build: ./web
+    depends_on: [api]
+    ports: ["8080:80"]
+volumes:
+  postgres_data:
