@@ -3,11 +3,18 @@ CREATE TABLE IF NOT EXISTS users (
  must_change_password BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE TABLE IF NOT EXISTS products (
- id SERIAL PRIMARY KEY, asin VARCHAR(10) UNIQUE NOT NULL, name TEXT NOT NULL, image_url TEXT,
+ id SERIAL PRIMARY KEY, asin VARCHAR(10) NOT NULL, marketplace VARCHAR(12) NOT NULL DEFAULT 'US', name TEXT NOT NULL, image_url TEXT,
  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','inactive')), notes TEXT,
  amazon_inventory INTEGER NOT NULL DEFAULT 0 CHECK (amazon_inventory >= 0), deleted_at TIMESTAMPTZ,
  created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- Safely migrate databases created by earlier releases.
+ALTER TABLE products ADD COLUMN IF NOT EXISTS marketplace VARCHAR(12);
+UPDATE products SET marketplace = 'US' WHERE marketplace IS NULL OR btrim(marketplace) = '';
+ALTER TABLE products ALTER COLUMN marketplace SET NOT NULL;
+ALTER TABLE products DROP CONSTRAINT IF EXISTS products_asin_key;
+CREATE UNIQUE INDEX IF NOT EXISTS products_marketplace_asin_active_key
+  ON products (marketplace, asin) WHERE deleted_at IS NULL;
 CREATE TABLE IF NOT EXISTS amazon_skus (
  id SERIAL PRIMARY KEY, product_id INTEGER NOT NULL REFERENCES products(id), sku TEXT NOT NULL,
  variant_name TEXT, inventory INTEGER NOT NULL DEFAULT 0 CHECK (inventory >= 0), deleted_at TIMESTAMPTZ,

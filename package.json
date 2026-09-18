@@ -2,5 +2,5 @@
   "name": "amz-management",
   "private": true,
   "workspaces": ["server", "web"],
-  "scripts": {"dev": "npm run dev -w server & npm run dev -w web", "build": "npm run build -w web", "test": "npm test -w server"}
+  "scripts": {"start": "node server/src/index.js", "build": "npm run build -w web", "test": "npm test -w server"}
 }

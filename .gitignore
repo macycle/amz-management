@@ -12,6 +12,7 @@ npm-debug.log*
 
 # Local database and Docker state
 postgres_data/
+data/
 *.sql.bak
 
 # OS and editor files
