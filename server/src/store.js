@@ -34,6 +34,26 @@ export const store = {
     const product = { id: nextId('products'), marketplace: input.marketplace, asin: input.asin, name: input.name, image_url: input.imageUrl || null, status: input.status, notes: input.notes || null, amazon_inventory: input.amazonInventory, deleted_at: null, created_at: now(), updated_at: now() };
     data.products.push(product); await save(); return product;
   },
+  async createProductWithSuppliers(input) {
+    const product = await this.createProduct(input);
+    try {
+      const sku = await this.createSku(product.id, { sku: input.amazonSku, variantName: '', inventory: input.amazonSkuInventory || 0 });
+      for (const variant of input.supplierVariants) {
+        const supplier = await this.createSupplier(sku.id, { supplierSku: variant.supplierSku, purchaseUrl: input.purchaseUrl, specification: variant.specification, enabled: true });
+        supplier.current_price = variant.price;
+        supplier.current_stock = variant.stock;
+      }
+      await save();
+      return product;
+    } catch (error) {
+      const skuIds = data.amazonSkus.filter(item => item.product_id === product.id).map(item => item.id);
+      data.products = data.products.filter(item => item.id !== product.id);
+      data.amazonSkus = data.amazonSkus.filter(item => item.product_id !== product.id);
+      data.suppliers = data.suppliers.filter(item => !skuIds.includes(item.amazon_sku_id));
+      await save();
+      throw error;
+    }
+  },
   async updateProduct(id, input) {
     const product = this.product(id); if (!product) return null;
     if (this.activeProducts().some(p => p.id !== product.id && p.marketplace === input.marketplace && p.asin === input.asin)) { const error = new Error('该站点的 ASIN 已存在'); error.code = 'DUPLICATE'; throw error; }

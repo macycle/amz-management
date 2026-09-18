@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 import { sign, requireAuth } from './auth.js';
 import { fetchSupplierSnapshot } from './supplier.js';
+import { fetchSupplierVariants } from './supplier.js';
+import { fetchAmazonImage } from './amazon.js';
 import { initializeStore, store } from './store.js';
 
 const app = express(), root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -16,13 +18,17 @@ const asyncRoute = fn => (req,res,next) => Promise.resolve(fn(req,res,next)).cat
 const productInput=z.object({marketplace:z.string().trim().min(2).max(12).transform(v=>v.toUpperCase()),asin:z.string().trim().length(10).transform(v=>v.toUpperCase()),name:z.string().trim().min(1),imageUrl:z.string().url().optional().or(z.literal('')),status:z.enum(['active','inactive']).default('active'),notes:z.string().optional(),amazonInventory:z.number().int().min(0).default(0)});
 const skuInput=z.object({sku:z.string().trim().min(1),variantName:z.string().optional(),inventory:z.number().int().min(0).default(0)});
 const supplierInput=z.object({supplierSku:z.string().trim().min(1),purchaseUrl:z.string().url(),specification:z.string().optional(),enabled:z.boolean().default(true)});
+const productImportInput=productInput.extend({amazonSku:z.string().trim().min(1),amazonSkuInventory:z.number().int().min(0).default(0),purchaseUrl:z.string().url(),supplierVariants:z.array(z.object({supplierSku:z.string().trim().min(1),specification:z.string().optional(),price:z.number().min(0),stock:z.number().int().min(0)})).min(1)});
 app.get('/api/health',(_,res)=>res.json({ok:true}));
 app.post('/api/auth/login',asyncRoute(async(req,res)=>{const d=z.object({email:z.string().email(),password:z.string().min(1)}).parse(req.body),user=store.users.find(u=>u.email===d.email);if(!user||!await bcrypt.compare(d.password,user.password_hash))return res.status(401).json({error:'账号或密码错误'});res.json({token:sign(user),user:{email:user.email,mustChangePassword:user.must_change_password}})}));
 app.post('/api/auth/password',requireAuth,asyncRoute(async(req,res)=>{const d=z.object({currentPassword:z.string(),newPassword:z.string().min(8)}).parse(req.body),user=store.users.find(u=>u.id===req.user.id);if(!user||!await bcrypt.compare(d.currentPassword,user.password_hash))return res.status(400).json({error:'当前密码不正确'});user.password_hash=await bcrypt.hash(d.newPassword,12);user.must_change_password=false;await store.save();res.status(204).end()}));
 app.use('/api',requireAuth);
+app.post('/api/products/preview',asyncRoute(async(req,res)=>{const d=z.object({marketplace:z.string().trim().min(2).max(12).transform(v=>v.toUpperCase()),asin:z.string().trim().length(10).transform(v=>v.toUpperCase())}).parse(req.body);res.json(await fetchAmazonImage(d.marketplace,d.asin))}));
+app.post('/api/suppliers/preview',asyncRoute(async(req,res)=>{const d=z.object({purchaseUrl:z.string().url()}).parse(req.body);res.json({variants:await fetchSupplierVariants(d.purchaseUrl)})}));
 app.get('/api/dashboard',(_,res)=>{const products=store.activeProducts(),suppliers=store.users&&store.activeProducts().flatMap(p=>store.productSkus(p.id)).flatMap(s=>store.suppliersForSku(s.id)),week=Date.now()-604800000,runs=[...suppliers.flatMap(s=>store.history(s.id))].filter(r=>Date.parse(r.synced_at)>week);res.json({products:products.length,out_of_stock:products.filter(p=>p.amazon_inventory===0).length,supplier_risk:suppliers.filter(s=>s.enabled&&(s.current_stock==null||s.current_stock===0)).length,failures:runs.filter(r=>r.status==='failed').length,price_rises:0})});
 app.get('/api/products',(req,res)=>{const page=Math.max(1,+req.query.page||1),size=Math.min(100,Math.max(1,+req.query.size||20)),q=(req.query.search||'').toLowerCase(),all=store.activeProducts().filter(p=>[p.asin,p.name,p.marketplace].some(v=>v.toLowerCase().includes(q))).sort((a,b)=>b.updated_at.localeCompare(a.updated_at));res.json({items:all.slice((page-1)*size,page*size).map(p=>({...p,sku_count:store.productSkus(p.id).length})),total:all.length,page,size})});
 app.post('/api/products',asyncRoute(async(req,res)=>res.status(201).json(await store.createProduct(productInput.parse(req.body)))));
+app.post('/api/products/import',asyncRoute(async(req,res)=>res.status(201).json(await store.createProductWithSuppliers(productImportInput.parse(req.body)))));
 app.get('/api/products/:id',(req,res)=>{const product=store.product(req.params.id);if(!product)return res.status(404).json({error:'产品不存在'});res.json({...product,skus:store.productSkus(product.id).map(s=>({...s,suppliers:store.suppliersForSku(s.id)}))})});
 app.put('/api/products/:id',asyncRoute(async(req,res)=>{const p=await store.updateProduct(req.params.id,productInput.parse(req.body));if(!p)return res.status(404).json({error:'产品不存在'});res.json(p)}));
 app.delete('/api/products/:id',asyncRoute(async(req,res)=>{if(!await store.deleteProduct(req.params.id))return res.status(404).json({error:'产品不存在'});res.status(204).end()}));
